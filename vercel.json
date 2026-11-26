@@ -1,3 +1,6 @@
 {
-  "framework": "vite"
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/api/:__ct_path((?!handler$).+)", "destination": "/api/handler?__ct_path=:__ct_path" }
+  ]
 }
