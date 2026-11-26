@@ -26,3 +26,17 @@ OpenAI-compatible configurations. For a compatible provider, enter its HTTPS
 Base URL and model name. Select a saved configuration and choose **Save & Enable**
 to switch. Each configuration stays in memory unless you opt in to saving it in
 the current tab's session storage.
+
+## Deploy Transit on Vercel
+
+Connect an Upstash Redis database to the Vercel project for the **Production**
+environment and redeploy. The API reads `KV_REST_API_URL` and
+`KV_REST_API_TOKEN` injected by the integration. The equivalent
+`UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` names also work.
+Use a read/write token and keep both variables server-side.
+
+After deploying, `GET /api/transit/status` should return `{"ok":true}`.
+`TRANSIT_NOT_CONFIGURED` means the Redis environment variables are missing.
+`TRANSIT_UNAVAILABLE` means the API could not reach Redis or execute a command.
+Standalone local development with `npm run dev` uses the existing
+`data/transit-store.json` file when Redis is unset.

@@ -17,6 +17,65 @@ import { Locale, WorkspaceDocument } from '../types/workspace';
 import { SceneSchema } from '../types/algorithmStudio';
 import { getTranslations } from '../constants/i18n';
 
+type TransitIssue = 'not-configured' | 'missing-api' | 'unavailable' | 'connection' | 'request';
+
+class TransitRequestError extends Error {
+  constructor(readonly kind: TransitIssue, message: string) {
+    super(message);
+  }
+}
+
+function issueMessage(kind: TransitIssue, zh: boolean): string {
+  const messages: Record<TransitIssue, [string, string]> = {
+    'not-configured': ['中转服务尚未配置，请联系站点管理员。', 'Transit is not configured. Contact the site administrator.'],
+    'missing-api': ['此站点未部署中转 API。请确认使用的是正式服务地址。', 'The transit API is missing. Check that you are on the deployed service.'],
+    unavailable: ['中转服务暂不可用，请稍后重试。', 'Transit is temporarily unavailable. Try again later.'],
+    connection: ['无法连接中转服务。请检查网络后重试。', 'Could not reach Transit. Check your connection and retry.'],
+    request: ['中转请求未完成，请检查输入后重试。', 'The request could not be completed. Check your input and try again.'],
+  };
+  return messages[kind][zh ? 0 : 1];
+}
+
+async function transitRequest<T>(path: string, zh: boolean, options?: RequestInit, timeout = 15_000): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(path, { ...options, cache: 'no-store', signal: AbortSignal.timeout(timeout) });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'TimeoutError') {
+      throw new TransitRequestError('connection', zh ? '连接中转服务超时，请重试。' : 'Transit timed out. Please retry.');
+    }
+    throw new TransitRequestError('connection', issueMessage('connection', zh));
+  }
+
+  const data = await response.json().catch(() => null) as { error?: string; message?: string } | null;
+  if (response.ok && data) return data as T;
+  const kind = data?.error === 'TRANSIT_NOT_CONFIGURED' ? 'not-configured'
+    : data?.error === 'API_NOT_FOUND' || (!data && (response.ok || response.status === 404 || response.status === 405)) ? 'missing-api'
+    : response.status >= 500 ? 'unavailable'
+    : 'request';
+  throw new TransitRequestError(kind, kind === 'request' && zh && data?.message
+    ? data.message
+    : kind === 'request' && response.status === 404
+      ? (zh ? '提取码或工作区不存在。' : 'The pickup code or workspace was not found.')
+      : kind === 'request' && response.status === 429
+        ? (zh ? '请求过于频繁，请稍后重试。' : 'Too many requests. Try again later.')
+        : kind === 'request' && response.status === 413
+          ? (zh ? '单次中转最多支持 2 MB。' : 'Each transfer can contain up to 2 MB.')
+        : issueMessage(kind, zh));
+}
+
+function requestMessage(error: unknown, zh: boolean): string {
+  return error instanceof TransitRequestError ? error.message : issueMessage('request', zh);
+}
+
+interface TransitPayload {
+  payloadType: 'source' | 'workspace';
+  payload: unknown;
+  readOnly: boolean;
+  requiresPassword?: boolean;
+  burnedNow?: boolean;
+}
+
 interface TransitModalProps {
   workspace: WorkspaceDocument;
   algoScene?: SceneSchema | null;
@@ -52,6 +111,9 @@ export const TransitModal: React.FC<TransitModalProps> = ({
   onClose,
 }) => {
   const t = getTranslations(locale);
+  const zh = locale === 'zh-CN';
+  const [service, setService] = useState<{ state: 'checking' | 'ready' | 'error'; details?: string }>({ state: 'checking' });
+  const [checkAttempt, setCheckAttempt] = useState(0);
   const [tab, setTab] = useState<'send' | 'receive' | 'cloud'>(initialPickupCode ? 'receive' : 'send');
 
   // Send state
@@ -86,6 +148,27 @@ export const TransitModal: React.FC<TransitModalProps> = ({
   const [cloudError, setCloudError] = useState('');
   const [cloudNotice, setCloudNotice] = useState('');
 
+  const reportError = (error: unknown, setError: (message: string) => void) => {
+    const message = requestMessage(error, zh);
+    setError(message);
+    if (error instanceof TransitRequestError && error.kind !== 'request') {
+      setService({ state: 'error', details: message });
+    }
+  };
+
+  useEffect(() => {
+    let current = true;
+    void transitRequest<{ ok: boolean }>('/api/transit/status', zh, undefined, 8_000)
+      .then((status) => {
+        if (!status.ok) throw new TransitRequestError('unavailable', issueMessage('unavailable', zh));
+        if (current) setService({ state: 'ready' });
+      })
+      .catch((error: unknown) => {
+        if (current) setService({ state: 'error', details: requestMessage(error, zh) });
+      });
+    return () => { current = false; };
+  }, [checkAttempt, zh]);
+
   useEffect(() => {
     if (initialPickupCode && /^\d{6}$/.test(initialPickupCode)) {
       void handleFetchTransit(initialPickupCode);
@@ -103,6 +186,11 @@ export const TransitModal: React.FC<TransitModalProps> = ({
   };
 
   const handleCreateTransit = async () => {
+    const maxViewCount = maxViews.trim() ? Number(maxViews) : null;
+    if (maxViewCount !== null && (!Number.isInteger(maxViewCount) || maxViewCount < 1 || maxViewCount > 1000)) {
+      setSendError(zh ? '访问次数应为 1 到 1000 之间的整数。' : 'Enter a view limit from 1 to 1000.');
+      return;
+    }
     setSending(true);
     setSendError('');
     try {
@@ -115,7 +203,7 @@ export const TransitModal: React.FC<TransitModalProps> = ({
             }
           : algoScene || workspace;
 
-      const res = await fetch('/api/transit', {
+      const json = await transitRequest<{ code: string; expiresAt: number }>('/api/transit', zh, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -123,16 +211,15 @@ export const TransitModal: React.FC<TransitModalProps> = ({
           payload,
           ttlMinutes,
           password: password.trim() || undefined,
-          maxViews: maxViews.trim() ? Number(maxViews) : null,
+          maxViews: maxViewCount,
           burnAfterRead,
           readOnly,
         }),
       });
-      const json = await res.json();
-      if (!res.ok) {
-        setSendError(json.message || '创建中转失败');
-        return;
+      if (!/^\d{6}$/.test(json.code) || !Number.isFinite(json.expiresAt)) {
+        throw new TransitRequestError('unavailable', issueMessage('unavailable', zh));
       }
+      setService({ state: 'ready' });
 
       const shareUrl = `${window.location.origin}/?code=${json.code}`;
       const qrSvg = await QRCode.toString(shareUrl, { type: 'svg', width: 140, margin: 1 });
@@ -143,19 +230,14 @@ export const TransitModal: React.FC<TransitModalProps> = ({
         qrSvg,
       });
       onTransitGenerated?.(json.code);
-    } catch {
-      setSendError(locale === 'zh-CN' ? '网络请求失败，请检查服务连接' : 'Network error');
+    } catch (error) {
+      reportError(error, setSendError);
     } finally {
       setSending(false);
     }
   };
 
-  const applyFetchedPayload = (json: {
-    payloadType: 'source' | 'workspace';
-    payload: unknown;
-    readOnly: boolean;
-    burnedNow?: boolean;
-  }) => {
+  const applyFetchedPayload = (json: TransitPayload) => {
     if (json.burnedNow) {
       setBurnedNotice(true);
     }
@@ -186,43 +268,34 @@ export const TransitModal: React.FC<TransitModalProps> = ({
     setNeedsPassword(false);
     setBurnedNotice(false);
     try {
-      const res = await fetch(`/api/transit/${targetCode}`);
-      const json = await res.json();
-      if (!res.ok) {
-        setReceiveError(json.message || '提取失败');
-        return;
-      }
+      const json = await transitRequest<TransitPayload>(`/api/transit/${targetCode}`, zh);
       if (json.requiresPassword) {
         setNeedsPassword(true);
         return;
       }
       applyFetchedPayload(json);
-    } catch {
-      setReceiveError(locale === 'zh-CN' ? '网络错误' : 'Network error');
+    } catch (error) {
+      reportError(error, setReceiveError);
     } finally {
       setReceiving(false);
     }
   };
 
   const handleVerifyPassword = async () => {
+    if (receiving) return;
     const targetCode = pickupCode.trim();
     setReceiving(true);
     setReceiveError('');
     try {
-      const res = await fetch(`/api/transit/${targetCode}/verify`, {
+      const json = await transitRequest<TransitPayload>(`/api/transit/${targetCode}/verify`, zh, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: unlockPassword }),
       });
-      const json = await res.json();
-      if (!res.ok) {
-        setReceiveError(json.message || '密码错误');
-        return;
-      }
       setNeedsPassword(false);
       applyFetchedPayload(json);
-    } catch {
-      setReceiveError(locale === 'zh-CN' ? '验证请求失败' : 'Verification failed');
+    } catch (error) {
+      reportError(error, setReceiveError);
     } finally {
       setReceiving(false);
     }
@@ -237,17 +310,12 @@ export const TransitModal: React.FC<TransitModalProps> = ({
     setCloudError('');
     onUpdateSyncKey(keyToUse.trim());
     try {
-      const res = await fetch('/api/cloud/workspaces', {
+      const json = await transitRequest<{ items: CloudWorkspaceItem[] }>('/api/cloud/workspaces', zh, {
         headers: { 'x-sync-key': keyToUse.trim() },
       });
-      const json = await res.json();
-      if (!res.ok) {
-        setCloudError(json.message || '获取云端列表失败');
-        return;
-      }
       setCloudItems(json.items || []);
-    } catch {
-      setCloudError(locale === 'zh-CN' ? '网络错误' : 'Network error');
+    } catch (error) {
+      reportError(error, setCloudError);
     } finally {
       setCloudLoading(false);
     }
@@ -263,7 +331,7 @@ export const TransitModal: React.FC<TransitModalProps> = ({
     setCloudNotice('');
     onUpdateSyncKey(syncKey.trim());
     try {
-      const res = await fetch('/api/cloud/workspaces', {
+      await transitRequest('/api/cloud/workspaces', zh, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -275,15 +343,10 @@ export const TransitModal: React.FC<TransitModalProps> = ({
           workspace,
         }),
       });
-      const json = await res.json();
-      if (!res.ok) {
-        setCloudError(json.message || '保存失败');
-        return;
-      }
       setCloudNotice(locale === 'zh-CN' ? '已安全同步到个人云端空间' : 'Synced to private cloud');
       await fetchCloudList(syncKey.trim());
-    } catch {
-      setCloudError(locale === 'zh-CN' ? '保存请求失败' : 'Save failed');
+    } catch (error) {
+      reportError(error, setCloudError);
     } finally {
       setCloudLoading(false);
     }
@@ -291,13 +354,13 @@ export const TransitModal: React.FC<TransitModalProps> = ({
 
   const handleDeleteCloud = async (id: string) => {
     try {
-      await fetch(`/api/cloud/workspaces/${encodeURIComponent(id)}`, {
+      await transitRequest(`/api/cloud/workspaces/${encodeURIComponent(id)}`, zh, {
         method: 'DELETE',
         headers: { 'x-sync-key': syncKey.trim() },
       });
       await fetchCloudList(syncKey.trim());
-    } catch {
-      // ignore
+    } catch (error) {
+      reportError(error, setCloudError);
     }
   };
 
@@ -351,9 +414,36 @@ export const TransitModal: React.FC<TransitModalProps> = ({
         </div>
 
         {/* Body */}
-        <div className="p-6 overflow-y-auto space-y-5 text-xs">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-5 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-white/10 dark:bg-white/5">
+            <div role="status" className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 font-semibold">
+                {service.state === 'checking'
+                  ? <Loader2 aria-hidden="true" className="size-4 animate-spin text-blue-600 dark:text-blue-400" />
+                  : service.state === 'ready'
+                    ? <Check aria-hidden="true" className="size-4 text-emerald-700 dark:text-emerald-300" />
+                    : <AlertCircle aria-hidden="true" className="size-4 text-amber-700 dark:text-amber-300" />}
+                {service.state === 'checking' ? (zh ? '正在检查中转服务' : 'Checking Transit service')
+                  : service.state === 'ready' ? (zh ? '中转服务可用' : 'Transit service is available')
+                  : (zh ? '中转服务暂不可用' : 'Transit service unavailable')}
+              </div>
+              {service.details && <p className="mt-1 text-slate-700 dark:text-slate-300">{service.details}</p>}
+            </div>
+            {service.state === 'error' && (
+              <button type="button" onClick={() => {
+                setService({ state: 'checking' });
+                setCheckAttempt((attempt) => attempt + 1);
+              }} className="min-h-11 rounded-md px-2.5 font-semibold text-blue-700 hover:bg-blue-100 dark:text-blue-300 dark:hover:bg-blue-500/15 cursor-pointer">
+                {zh ? '重新检查' : 'Check again'}
+              </button>
+            )}
+          </div>
           {tab === 'send' && (
             <>
+              <p className="text-slate-700 dark:text-slate-300">
+                {zh ? '生成提取码后，在接收设备打开同一网站，输入六位数字即可提取。每次最多发送 2 MB。'
+                  : 'Open this site on the receiving device and enter the six-digit pickup code. Each transfer can contain up to 2 MB.'}
+              </p>
               <div className="space-y-2">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -440,7 +530,7 @@ export const TransitModal: React.FC<TransitModalProps> = ({
               </div>
 
               {sendError && (
-                <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center gap-2">
+                <div role="alert" className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{sendError}</span>
                 </div>
@@ -558,7 +648,7 @@ export const TransitModal: React.FC<TransitModalProps> = ({
               )}
 
               {receiveError && (
-                <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center gap-2">
+                <div role="alert" className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{receiveError}</span>
                 </div>
@@ -608,7 +698,7 @@ export const TransitModal: React.FC<TransitModalProps> = ({
                 </button>
               </div>
 
-              {cloudError && <div className="text-rose-400">{cloudError}</div>}
+              {cloudError && <div role="alert" className="text-rose-700 dark:text-rose-300">{cloudError}</div>}
               {cloudNotice && <div className="text-emerald-400">{cloudNotice}</div>}
 
               <div className="divide-y divide-slate-200 dark:divide-white/10 border border-slate-200 dark:border-white/10 rounded-lg">
