@@ -1,0 +1,19 @@
+{
+  "transits": {
+    "641062": {
+      "code": "641062",
+      "payloadType": "source",
+      "payload": {
+        "code": "int main(){}"
+      },
+      "readOnly": true,
+      "passwordHash": null,
+      "maxViews": null,
+      "viewsUsed": 1,
+      "burnAfterRead": false,
+      "createdAt": 1795625055321,
+      "expiresAt": 1795625655321
+    }
+  },
+  "cloudWorkspaces": {}
+}

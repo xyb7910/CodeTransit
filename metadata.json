@@ -1,0 +1,6 @@
+{
+  "name": "Yanpb CodeTransit",
+  "description": "面向算法竞赛选手与信息学竞赛教练的代码中转、代码美化、题目标注、样例管理及教学图片创作平台。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
