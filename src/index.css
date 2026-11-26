@@ -167,6 +167,55 @@ mark.oi-hl-underline {
   border-right: none !important;
 }
 
+.workspace-guide-arrow {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
+  background: inherit;
+  border: 0 solid;
+  border-color: inherit;
+  rotate: 45deg;
+}
+
+#workspace-guide:is([data-side="above"], [data-side="below"]) .workspace-guide-arrow {
+  left: var(--guide-tip-x);
+  translate: -50% 0;
+}
+
+#workspace-guide:is([data-side="left"], [data-side="right"]) .workspace-guide-arrow {
+  top: var(--guide-tip-y);
+  translate: 0 -50%;
+}
+
+#workspace-guide[data-side="below"] .workspace-guide-arrow {
+  top: -7px;
+  border-top-width: 1px;
+  border-left-width: 1px;
+}
+
+#workspace-guide[data-side="above"] .workspace-guide-arrow {
+  bottom: -7px;
+  border-right-width: 1px;
+  border-bottom-width: 1px;
+}
+
+#workspace-guide[data-side="right"] .workspace-guide-arrow {
+  left: -7px;
+  border-left-width: 1px;
+  border-bottom-width: 1px;
+}
+
+#workspace-guide[data-side="left"] .workspace-guide-arrow {
+  right: -7px;
+  border-top-width: 1px;
+  border-right-width: 1px;
+}
+
+#workspace-guide[data-side="detached"] .workspace-guide-arrow {
+  display: none;
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

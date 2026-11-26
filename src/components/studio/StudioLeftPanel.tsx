@@ -325,6 +325,7 @@ export const StudioLeftPanel: React.FC<StudioLeftPanelProps> = ({
           <button
             key={id}
             type="button"
+            data-guide-target={id === 'templates' ? 'algorithm-templates' : undefined}
             onClick={() => setTab(id)}
             className={`py-2.5 text-[11px] font-semibold border-b-2 transition-colors cursor-pointer ${
               tab === id

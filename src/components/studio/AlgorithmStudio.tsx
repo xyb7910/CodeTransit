@@ -750,6 +750,7 @@ export const AlgorithmStudio: React.FC<AlgorithmStudioProps> = ({
   // Unified Shortcut Registry Keyboard Listener (IME + Text Input Guarded)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof Element && e.target.closest('dialog, [role="dialog"]')) return;
       if (showCommandPalette || showShortcutHelp || showExportModal || showBuilder || showDslEditor) {
         return;
       }
@@ -1289,6 +1290,7 @@ export const AlgorithmStudio: React.FC<AlgorithmStudioProps> = ({
           </button>
           <button
             type="button"
+            data-guide-target="algorithm-sidebar"
             onClick={() => setPrefs((p) => ({ ...p, leftOpen: !p.leftOpen }))}
             title={zh ? '折叠左侧栏' : 'Toggle Left'}
             className={`p-1.5 rounded cursor-pointer ${prefs.leftOpen ? 'text-blue-400' : 'text-slate-400'}`}
@@ -1334,6 +1336,7 @@ export const AlgorithmStudio: React.FC<AlgorithmStudioProps> = ({
 
           <button
             type="button"
+            data-guide-target="algorithm-transit"
             onClick={() => onShareViaTransit(scene)}
             className="px-2.5 py-1 rounded border border-slate-300 dark:border-white/15 hover:bg-white/5 flex items-center gap-1 cursor-pointer"
           >

@@ -478,7 +478,7 @@ export default function App() {
 
   const hasAiKey = hasConfiguredAiKey(aiConfig);
   const handleOpenGuide = () => {
-    if (showGuide) document.getElementById('workspace-guide')?.scrollIntoView({ block: 'nearest' });
+    if (showGuide) document.getElementById('workspace-guide-title')?.focus({ preventScroll: true });
     else setShowGuide(true);
   };
   const handleDismissGuide = () => {
@@ -518,14 +518,8 @@ export default function App() {
           locale={locale}
           activeMode={studioMode}
           hasAiKey={hasAiKey}
-          onOpenCodeTemplates={() => {
-            handleSwitchStudio('code');
-            setShowTemplatesBar(true);
-          }}
-          onOpenAlgorithm={() => handleSwitchStudio('algorithm')}
-          onOpenApiKey={() => setShowApiKeyModal(true)}
-          onOpenExport={handleOpenExport}
-          onOpenTransit={handleOpenTransit}
+          suspended={showApiKeyModal || showTransitModal || showExportModal || showRepoModal || showShortcutsModal}
+          onSwitchMode={handleSwitchStudio}
           onDismiss={handleDismissGuide}
         />
       )}

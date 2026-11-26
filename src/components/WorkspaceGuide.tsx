@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, BookOpen, Check, Code2, Cpu, KeyRound, Share2 } from 'lucide-react';
+import { useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { ArrowLeft, ArrowRight, BookOpen, Check } from 'lucide-react';
 import type { Locale } from '../types/workspace';
+import type { StudioMode } from '../types/algorithmStudio';
 
 const GUIDE_DISMISSED = 'codetransit_workspace_guide_dismissed';
 
@@ -22,136 +24,276 @@ export function dismissWorkspaceGuide(): void {
 
 interface WorkspaceGuideProps {
   locale: Locale;
-  activeMode: 'code' | 'algorithm';
+  activeMode: StudioMode;
   hasAiKey: boolean;
-  onOpenCodeTemplates: () => void;
-  onOpenAlgorithm: () => void;
-  onOpenApiKey: () => void;
-  onOpenExport: () => void;
-  onOpenTransit: () => void;
+  suspended: boolean;
+  onSwitchMode: (mode: StudioMode) => void;
   onDismiss: () => void;
 }
 
-export function WorkspaceGuide({
-  locale, activeMode, hasAiKey, onOpenCodeTemplates, onOpenAlgorithm,
-  onOpenApiKey, onOpenExport, onOpenTransit, onDismiss,
-}: WorkspaceGuideProps) {
+const MARGIN = 12;
+const GAP = 14;
+
+export function WorkspaceGuide({ locale, activeMode, hasAiKey, suspended, onSwitchMode, onDismiss }: WorkspaceGuideProps) {
   const zh = locale === 'zh-CN';
-  const [index, setIndex] = useState(0);
-  const section = useRef<HTMLElement>(null);
+  const [index, setIndex] = useState(activeMode === 'algorithm' ? 3 : 0);
+  const [usingSidebarToggle, setUsingSidebarToggle] = useState(false);
+  const panel = useRef<HTMLElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const spotlight = useRef<HTMLDivElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const steps = [
     {
-      icon: Code2,
-      label: zh ? '编辑代码' : 'Edit code',
-      title: zh ? '从一张代码卡片开始' : 'Start with a code card',
-      description: zh
-        ? '在 Code Studio 选择一个版式，把代码粘贴到编辑器。需要题面、公式或对拍样例时，用工具栏的「添加模块」。'
-        : 'Pick a layout in Code Studio and paste code into the editor. Use Add Block to include a problem statement, formula, or test cases.',
-      actions: [{ label: zh ? '查看代码版式' : 'Browse code layouts', run: onOpenCodeTemplates }],
+      target: 'code-templates',
+      mode: 'code',
+      title: zh ? '选择代码版式' : 'Pick a code layout',
+      description: zh ? '打开「画布模板」，选择一个代码卡片版式，再把代码粘贴到编辑器。'
+        : 'Open the highlighted layout button, choose a template, then paste your code into the editor.',
     },
     {
-      icon: Cpu,
-      label: zh ? '推演算法' : 'Trace an algorithm',
-      title: zh ? '用模板生成算法推演' : 'Generate a trace from a template',
-      description: zh
-        ? '打开 Algorithm Studio，在左侧「模板」选择一个算法，再用底部时间轴播放或逐步查看。也可以从「规则设计器」或「DSL」创建自己的场景。'
-        : 'Open Algorithm Studio, pick an algorithm under Algos, then play or step through the trace from the timeline. Use Builder or DSL to create a custom scene.',
-      actions: [{ label: zh ? '打开算法工作室' : 'Open Algorithm Studio', run: onOpenAlgorithm }],
+      target: 'add-block',
+      mode: 'code',
+      title: zh ? '添加画布模块' : 'Add canvas blocks',
+      description: zh ? '打开「添加模块」，给代码卡片补充题面、样例或公式。'
+        : 'Open Add Block to include a problem statement, test cases, or a formula.',
     },
     {
-      icon: KeyRound,
-      label: zh ? '配置模型' : 'Set up a model',
-      title: zh ? '按需启用 AI 创作' : 'Enable AI creation if needed',
+      target: 'studio-algorithm',
+      title: zh ? '切换到算法工作室' : 'Switch to Algorithm Studio',
+      description: zh ? '点击高亮的 Algorithm Studio 标签，进入算法推演画布。'
+        : 'Select the highlighted Algorithm Studio tab to open the visualization canvas.',
+    },
+    {
+      target: 'algorithm-templates',
+      mode: 'algorithm',
+      title: zh ? '从模板开始推演' : 'Run an algorithm from a template',
+      description: usingSidebarToggle
+        ? zh ? '点击高亮的按钮展开左侧栏，再进入「模板」选择算法。'
+          : 'Open the highlighted sidebar, then choose an algorithm under Algos.'
+        : zh ? '在左侧「模板」中选择一个算法，再用底部时间轴播放或逐步查看。'
+          : 'Choose an algorithm under Algos, then play or step through it using the timeline.',
+    },
+    {
+      target: 'api-key',
+      title: zh ? '按需配置 AI 模型' : 'Set up an AI model if needed',
       description: hasAiKey
-        ? zh ? '已有启用的模型。可以直接在 Algorithm Studio 打开「AI 创作」，也可以在设置中添加或切换 API Key。'
-          : 'A model is active. Open AI Creation in Algorithm Studio, or add and switch API keys in settings.'
-        : zh ? '这一步可选。添加 Gemini 或 OpenAI 兼容接口的 API Key 后，即可在 Algorithm Studio 使用「AI 创作」。'
-          : 'This step is optional. Add a Gemini or OpenAI-compatible API key to use AI Creation in Algorithm Studio.',
-      actions: [{ label: hasAiKey ? (zh ? '管理 API Key' : 'Manage API keys') : (zh ? '配置 API Key' : 'Set up an API key'), run: onOpenApiKey }],
+        ? zh ? '已有启用的模型。点击「API Key」可以添加或切换配置。'
+          : 'A model is active. Open API Key to add or switch configurations.'
+        : zh ? '此步可选。点击「API Key」添加密钥，即可在算法工作室使用 AI 创作。'
+          : 'This step is optional. Add a key to use AI creation in Algorithm Studio.',
     },
     {
-      icon: Share2,
-      label: zh ? '导出分享' : 'Export and share',
-      title: zh ? '导出作品，或用提取码在另一台设备打开' : 'Export your work or open it on another device',
+      target: activeMode === 'algorithm' ? 'algorithm-transit' : 'code-transit',
+      title: zh ? '用提取码分享' : 'Share with a pickup code',
       description: activeMode === 'algorithm'
-        ? zh ? '选择「导出」下载当前场景，或点击算法工作室工具栏的「中转分享」生成六位提取码。'
-          : 'Select Export to download the scene, or use Share in the Algorithm Studio toolbar to get a six-digit pickup code.'
-        : zh ? '选择「导出」下载作品，或打开「中转」为代码工作区生成六位提取码。'
-          : 'Select Export to download your work, or open Transit to get a six-digit pickup code for the code workspace.',
-      actions: [
-        { label: zh ? '打开导出' : 'Open Export', run: onOpenExport },
-        ...(activeMode === 'code' ? [{ label: zh ? '打开中转' : 'Open Transit', run: onOpenTransit }] : []),
-      ],
+        ? zh ? '点击「中转分享」，为当前算法场景生成六位提取码。'
+          : 'Use Share to create a six-digit pickup code for the current algorithm scene.'
+        : zh ? '点击「中转」，为当前代码工作区生成六位提取码。'
+          : 'Use Transit to create a six-digit pickup code for the current code workspace.',
     },
-  ];
+    {
+      target: 'export',
+      title: zh ? '导出你的作品' : 'Export your work',
+      description: zh ? '点击「导出」查看当前工作室支持的下载格式。'
+        : 'Open Export to see the download formats available in the current studio.',
+    },
+  ] satisfies Array<{ target: string; mode?: StudioMode; title: string; description: string }>;
   const step = steps[index];
-  const Icon = step.icon;
+  const wrongStudio = step.mode && step.mode !== activeMode;
+  const targetId = wrongStudio ? `studio-${step.mode}` : step.target;
   const last = index === steps.length - 1;
-  const control = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500';
+  const control = 'inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-2.5 text-sm font-medium cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500';
 
-  useEffect(() => {
-    section.current?.scrollIntoView({ block: 'nearest' });
-  }, []);
+  useLayoutEffect(() => {
+    if (suspended || !panel.current || !spotlight.current || !content.current) return;
+    const card = panel.current;
+    const body = content.current;
+    const ring = spotlight.current;
+    const header = document.querySelector('header');
+    let target: HTMLElement | null = null;
+    let frame = 0;
+    let describedBy: string | null = null;
+
+    function position() {
+      frame = 0;
+      const width = document.documentElement.clientWidth;
+      const height = document.documentElement.clientHeight;
+      const rect = target?.getBoundingClientRect();
+      const headerBottom = header?.contains(target) ? 0 : header?.getBoundingClientRect().bottom ?? 0;
+      const visible = rect && rect.width > 0 && rect.height > 0 &&
+        rect.bottom > headerBottom && rect.top < height && rect.right > 0 && rect.left < width;
+      ring.hidden = !visible;
+
+      if (!visible || !rect) {
+        card.style.maxHeight = `${height - MARGIN * 2}px`;
+        card.style.left = `${Math.max(MARGIN, width - card.offsetWidth - MARGIN)}px`;
+        card.style.top = `${Math.max(MARGIN, height - card.offsetHeight - MARGIN)}px`;
+        card.dataset.side = 'detached';
+        return;
+      }
+
+      const left = Math.max(0, rect.left);
+      const right = Math.min(width, rect.right);
+      const top = Math.max(rect.top, headerBottom);
+      const bottom = Math.min(height, rect.bottom);
+      Object.assign(ring.style, {
+        left: `${left - 3}px`, top: `${top - 3}px`,
+        width: `${right - left + 6}px`, height: `${bottom - top + 6}px`,
+      });
+
+      const center = (left + right) / 2;
+      const cardWidth = card.offsetWidth;
+      const above = top - GAP - MARGIN;
+      const below = height - bottom - GAP - MARGIN;
+      const expanded = target?.getAttribute('aria-expanded') === 'true';
+      const roomRight = width - right - GAP - MARGIN >= cardWidth;
+      const roomLeft = left - GAP - MARGIN >= cardWidth;
+      if (expanded && (roomRight || roomLeft)) {
+        card.style.maxHeight = `${height - MARGIN * 2}px`;
+        const middle = (top + bottom) / 2;
+        const cardTop = Math.max(MARGIN, Math.min(middle - card.offsetHeight / 2, height - card.offsetHeight - MARGIN));
+        card.style.left = `${roomRight ? right + GAP : left - GAP - cardWidth}px`;
+        card.style.top = `${cardTop}px`;
+        card.style.setProperty('--guide-tip-y', `${middle - cardTop}px`);
+        card.dataset.side = roomRight ? 'right' : 'left';
+        return;
+      }
+
+      const cardLeft = Math.max(MARGIN, Math.min(center - cardWidth / 2, width - cardWidth - MARGIN));
+      const placeAbove = (expanded && above >= 140) || (below < body.scrollHeight + 2 && above > below);
+      card.style.left = `${cardLeft}px`;
+      card.style.maxHeight = `${Math.max(0, placeAbove ? above : below)}px`;
+      card.style.top = `${placeAbove ? top - GAP - card.offsetHeight : bottom + GAP}px`;
+      card.style.setProperty('--guide-tip-x', `${Math.max(13, Math.min(center - cardLeft, cardWidth - 13))}px`);
+      card.dataset.side = placeAbove ? 'above' : 'below';
+    }
+
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(position);
+    };
+    const resize = new ResizeObserver(schedule);
+    resize.observe(card);
+    if (header) resize.observe(header);
+
+    const advanceOnStudioClick = () => setIndex(3);
+
+    function disconnectTarget() {
+      if (!target) return;
+      resize.unobserve(target);
+      target.removeEventListener('click', advanceOnStudioClick);
+      if (describedBy === null) target.removeAttribute('aria-describedby');
+      else target.setAttribute('aria-describedby', describedBy);
+    }
+
+    function connectTarget() {
+      const primary = document.querySelector<HTMLElement>(`[data-guide-target="${targetId}"]`);
+      const next = primary ?? (targetId === 'algorithm-templates'
+        ? document.querySelector<HTMLElement>('[data-guide-target="algorithm-sidebar"]')
+        : null);
+      if (next === target) return;
+      disconnectTarget();
+      target = next;
+      setUsingSidebarToggle(Boolean(next && !primary));
+      if (target) {
+        describedBy = target.getAttribute('aria-describedby');
+        target.setAttribute('aria-describedby', [describedBy, 'workspace-guide-description'].filter(Boolean).join(' '));
+        if (targetId === 'studio-algorithm' && index === 2) target.addEventListener('click', advanceOnStudioClick);
+        const rect = target.getBoundingClientRect();
+        const headerBottom = header?.contains(target) ? 0 : header?.getBoundingClientRect().bottom ?? 0;
+        if (rect.top < headerBottom || rect.bottom > document.documentElement.clientHeight) {
+          target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+        }
+        resize.observe(target);
+      }
+    }
+
+    connectTarget();
+    position();
+    const observer = new MutationObserver(() => {
+      connectTarget();
+      schedule();
+    });
+    const root = document.getElementById('root');
+    if (root) observer.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-expanded'] });
+    window.addEventListener('scroll', schedule, true);
+    window.addEventListener('resize', schedule);
+    return () => {
+      cancelAnimationFrame(frame);
+      disconnectTarget();
+      resize.disconnect();
+      observer.disconnect();
+      window.removeEventListener('scroll', schedule, true);
+      window.removeEventListener('resize', schedule);
+    };
+  }, [targetId, index, suspended]);
+
+  useLayoutEffect(() => {
+    heading.current?.focus({ preventScroll: true });
+  }, [index]);
 
   function goTo(next: number) {
+    const mode = steps[next].mode;
+    if (mode && mode !== activeMode) onSwitchMode(mode);
     setIndex(next);
-    heading.current?.focus({ preventScroll: true });
   }
 
-  return (
-    <section ref={section} id="workspace-guide" aria-labelledby="workspace-guide-title" onKeyDown={(event) => {
-      if (event.key === 'Escape') onDismiss();
-    }} className="mx-auto w-full max-w-[1440px] scroll-mt-28 px-3 py-3 sm:px-6">
-      <div className="rounded-xl border border-blue-200 bg-white p-4 dark:border-blue-500/30 dark:bg-[#121722] sm:p-5">
-        <div className="flex flex-wrap items-center justify-between gap-x-4">
-          <h2 id="workspace-guide-title" className="flex items-center gap-2 text-sm font-semibold">
-            <BookOpen aria-hidden="true" className="size-4 text-blue-600 dark:text-blue-400" />
-            {zh ? '使用指引' : 'Getting started'}
-          </h2>
-          <button type="button" onClick={onDismiss} className={control + ' text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'}>
-            {zh ? '跳过指引' : 'Skip guide'}
-          </button>
-        </div>
-        <ol className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label={zh ? '引导步骤' : 'Guide steps'}>
-          {steps.map(({ label }, i) => (
-            <li key={label} aria-current={i === index ? 'step' : undefined}
-              className={'rounded-lg px-2 py-1.5 text-sm ' + (i === index
-                ? 'bg-blue-100 font-semibold text-blue-900 dark:bg-blue-500/20 dark:text-blue-200'
-                : 'bg-slate-100 text-slate-600 dark:bg-white/5 dark:text-slate-300')}>
-              {i + 1}. {label}
-            </li>
-          ))}
-        </ol>
-        <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
-          <div className="min-w-0 max-w-2xl">
-            <h3 ref={heading} tabIndex={-1} aria-live="polite" className="flex items-start gap-2 rounded-sm text-base font-semibold">
-              <Icon aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-blue-600 dark:text-blue-400" />
-              {step.title}
-            </h3>
-            <p className="mt-1 text-sm leading-relaxed text-slate-700 dark:text-slate-300">{step.description}</p>
-            <div className="mt-1 flex flex-wrap gap-x-2">
-              {step.actions.map(({ label, run }) => (
-                <button key={label} type="button" onClick={run} className={control + ' text-blue-700 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-500/10'}>
-                  {label} <ArrowRight aria-hidden="true" className="size-4" />
-                </button>
-              ))}
-            </div>
+  if (suspended) return <span id="workspace-guide" hidden />;
+
+  return createPortal(
+    <>
+      <div ref={spotlight} hidden aria-hidden="true" className="pointer-events-none fixed z-[41] rounded-lg border-2 border-blue-600 dark:border-sky-400" />
+      <section
+        ref={panel}
+        id="workspace-guide"
+        role="dialog"
+        aria-labelledby="workspace-guide-title"
+        aria-describedby="workspace-guide-description"
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.stopPropagation();
+            onDismiss();
+          }
+        }}
+        className="fixed z-[42] w-[min(22rem,calc(100%_-_24px))] rounded-xl border border-blue-300 bg-white text-slate-900 shadow-xl dark:border-sky-500/60 dark:bg-[#141D2E] dark:text-slate-100"
+      >
+        <span aria-hidden="true" className="workspace-guide-arrow" />
+        <div ref={content} className="max-h-[inherit] overflow-y-auto rounded-[inherit] px-3 pb-3 sm:px-4">
+          <div className="flex items-center justify-between gap-1">
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-blue-800 dark:text-sky-300">
+              <BookOpen aria-hidden="true" className="size-3.5" />
+              {zh ? `使用指引 · ${index + 1}/${steps.length}` : `Quick tour · ${index + 1}/${steps.length}`}
+            </span>
+            <button type="button" onClick={onDismiss} className={control + ' text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10'}>
+              {zh ? '跳过指引' : 'Skip tour'}
+            </button>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div role="progressbar" aria-valuenow={index + 1} aria-valuemin={0} aria-valuemax={steps.length}
+            aria-label={zh ? '引导进度' : 'Tour progress'} className="h-1 rounded-full bg-blue-100 dark:bg-slate-700">
+            <div className="h-full rounded-full bg-blue-600 dark:bg-sky-400" style={{ width: `${(index + 1) / steps.length * 100}%` }} />
+          </div>
+          <h2 ref={heading} id="workspace-guide-title" tabIndex={-1} className="mt-3 text-base font-semibold outline-none">
+            {step.title}
+          </h2>
+          <p id="workspace-guide-description" className="mt-1 text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+            {wrongStudio
+              ? zh ? '点击高亮的工作室标签，进入对应的画布。' : 'Select the highlighted studio tab to open its workspace.'
+              : step.description}
+          </p>
+          <div className="mt-3 flex items-center justify-between gap-2">
             {index > 0 && (
               <button type="button" onClick={() => goTo(index - 1)} className={control + ' border border-slate-300 hover:bg-slate-100 dark:border-white/20 dark:hover:bg-white/10'}>
-                <ArrowLeft aria-hidden="true" className="size-4" /> {zh ? '上一步' : 'Back'}
+                <ArrowLeft aria-hidden="true" className="size-4" />{zh ? '上一步' : 'Back'}
               </button>
             )}
             <button type="button" onClick={() => last ? onDismiss() : goTo(index + 1)}
-              className={control + ' bg-blue-700 text-white hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-700'}>
-              {last ? (zh ? '完成指引' : 'Finish guide') : (zh ? '下一步' : 'Next')}
+              className={control + ' ml-auto bg-blue-700 text-white hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-700'}>
+              {last ? (zh ? '完成指引' : 'Finish tour') : (zh ? '下一步' : 'Next')}
               {last ? <Check aria-hidden="true" className="size-4" /> : <ArrowRight aria-hidden="true" className="size-4" />}
             </button>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </>,
+    document.body,
   );
 }

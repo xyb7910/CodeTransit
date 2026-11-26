@@ -287,6 +287,8 @@ export const CanvasToolbar: React.FC<CanvasToolbarProps> = ({
             <button
               ref={addBtnRef}
               type="button"
+              data-guide-target="add-block"
+              aria-expanded={showAddMenu}
               onClick={() => {
                 setShowAddMenu((v) => !v);
                 setShowBgMenu(false);
@@ -339,6 +341,8 @@ export const CanvasToolbar: React.FC<CanvasToolbarProps> = ({
 
           <button
             type="button"
+            data-guide-target="code-templates"
+            aria-expanded={showTemplates}
             onClick={onToggleTemplates}
             className={`h-8 px-2.5 rounded-md border text-xs flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
               showTemplates

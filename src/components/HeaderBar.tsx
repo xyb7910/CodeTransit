@@ -41,8 +41,9 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
         <button
           type="button"
           onClick={() => onSwitchStudio('code')}
-          className="text-base font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+          className="inline-flex min-h-9 items-center gap-2 text-base font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
         >
+          <img src={`${import.meta.env.BASE_URL}codetransit-icon.svg`} alt="" width={28} height={28} />
           {t.brand}
         </button>
 
@@ -54,6 +55,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               <button
                 key={st.id}
                 type="button"
+                data-guide-target={`studio-${st.id}`}
                 onClick={() => onSwitchStudio(st.id)}
                 className={`whitespace-nowrap shrink-0 py-1 transition-colors cursor-pointer border-b-2 focus-visible:outline-none ${
                   isActive
@@ -71,6 +73,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
+            data-guide-target="api-key"
             onClick={onOpenApiKey}
             title={
               locale === 'zh-CN'
@@ -106,6 +109,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
           <button
             type="button"
+            data-guide-target="code-transit"
             onClick={onOpenTransit}
             className="px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-white/15 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
           >
@@ -115,6 +119,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
           <button
             type="button"
+            data-guide-target="export"
             onClick={onOpenExport}
             className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 active:bg-blue-700 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#0B0E14]"
           >
